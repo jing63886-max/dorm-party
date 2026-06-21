@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.next/
+dist/
+
+# Environment
+.env
+.env.local
+
+# Docker volumes
+mysql_data/
+redis_data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build cache
+.docker/
+
+# Temp
+*.tmp
+invite.html

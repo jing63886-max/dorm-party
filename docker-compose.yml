@@ -1,0 +1,121 @@
+services:
+  # ==================== MySQL 数据库 ====================
+  mysql:
+    image: docker.1ms.run/library/mysql:8.0
+    container_name: dorm-party-mysql
+    restart: unless-stopped
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${DB_DATABASE:-dorm_party}
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${DB_PASSWORD:-root123456}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dorm-party-net
+
+  # ==================== Redis 缓存 ====================
+  redis:
+    image: docker.1ms.run/library/redis:7-alpine
+    container_name: dorm-party-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dorm-party-net
+
+  # ==================== NestJS 后端服务 ====================
+  server:
+    build:
+      context: ./dorm-party-server
+      dockerfile: Dockerfile
+    container_name: dorm-party-server
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: 3001
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root123456}
+      DB_DATABASE: ${DB_DATABASE:-dorm_party}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com/v1}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
+      AI_TEMPERATURE: ${AI_TEMPERATURE:-0.8}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dorm-party-net
+
+  # ==================== Next.js 前端服务 ====================
+  client:
+    build:
+      context: ./dorm-party-client
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost}
+    container_name: dorm-party-client
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    depends_on:
+      - server
+    networks:
+      - dorm-party-net
+
+  # ==================== Nginx 反向代理 ====================
+  nginx:
+    image: docker.1ms.run/library/nginx:1.25-alpine
+    container_name: dorm-party-nginx
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - client
+      - server
+    networks:
+      - dorm-party-net
+
+# ==================== 数据卷 ====================
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ==================== 网络 ====================
+networks:
+  dorm-party-net:
+    driver: bridge
